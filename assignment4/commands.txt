@@ -1,0 +1,1 @@
+table_add MyIngress.src_mac_drop MyIngress.drop 00:00:00:00:00:02 =>

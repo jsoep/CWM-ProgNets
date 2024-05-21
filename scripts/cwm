@@ -4,19 +4,19 @@ INPUT="$1"
 
 # Server side 
 # IP address of source host with CIDR (netmask)
-SRC_IP="169.254.21.80/16"
+SRC_IP="192.168.10.1/24"
 # IP address of destination host
-DST_IP="169.254.21.222"
+DST_IP="192.168.10.2"
 # MAC address of destination host
-DST_MAC="e4:5f:01:8c:7e:52"
+DST_MAC="00:00:00:00:00:01"
 # Interface name (USB-Ethernet) of the host
-ETH="eth0"
+ETH="enx0c37965f8a25"
 
 # Switch side (Raspberry Pi)
 # The directory to your P4 program
-DIR="/home/pi/cwm-prognets/assignment3/"
+DIR="/home/pi/CWM-ProgNets/assignment4/"
 # Modify the name of P4 program here
-P4_NAME="myprog"
+P4_NAME="reflector"
 # The name of the first interface on Raspberry Pi
 INT1="eth0"
 # The name of the second interface on Raspberry Pi

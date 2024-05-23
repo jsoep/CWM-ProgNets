@@ -16,6 +16,8 @@
  * +----------------+----------------+----------------+---------------+
  * |                      Market price (mktprice)                     |
  * +----------------+----------------+----------------+---------------+
+ * |    cmpToAvg    |
+ * +----------------+
  *
  * P is an ASCII Letter 'P' (0x50)
  * 4 is an ASCII Letter '4' (0x34)
@@ -62,9 +64,12 @@ header p4trade_t {
     bit<8>  p;
     bit<8>  four;
     bit<8>  ver;
-    bit<8>  act;
+    bit<32>  act;
     bit<32>  amt;
     bit<32>  mktprice;
+    bit<32> cmpToAvg;
+    bit<32> mAvg;
+    bit<32> tc;
 }
 
 /*
@@ -95,7 +100,7 @@ register<bit<32>>(8192) priceHist;
 register<bit<32>>(8192) tradeCountReg;
 
 // initialise register to store if the last trade price was higher, equal to or lower than moving average
-register<bit<2>>(1) lastIsHigher; // 2 means higher than average, 1 means equal, 0 means lower
+register<bit<1>>(1) lastIsHigher; // 1 means higher than average, 0 means lower
 
 /*************************************************************************
  ***********************  P A R S E R  ***********************************
@@ -143,7 +148,7 @@ control MyVerifyChecksum(inout headers hdr,
 control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
-    action send_back(bit<8> tradeAct, bit<32> tradeAmt) {
+    action send_back(bit<32> tradeAct, bit<32> tradeAmt) {
     
         hdr.p4trade.act = tradeAct; // put the action back in hdr.p4trade.act
         hdr.p4trade.amt = tradeAmt; // put the trade amount back in hdr.p4trade.amt
@@ -174,7 +179,7 @@ control MyIngress(inout headers hdr,
         tradeCountReg.write(0, tradeCountVar);
     }
     
-    action calcMovingAvg(out bit<32> movingAvg, in bit<32> tradeCount) {
+    action calcMovingAvg(bit<32> tradeCount) {
         bit<32> recent0;
         bit<32> recent1;
         bit<32> recent2;
@@ -186,64 +191,19 @@ control MyIngress(inout headers hdr,
         
         bit<32> sum4recents = recent0 + recent1 + recent2 + recent3;
         
-        movingAvg = sum4recents >> 2;
+        hdr.p4trade.mAvg = sum4recents >> 2;
+        
     }
     
-    action tooFewTrades() {
-    
-    }
-    
-    action decideTrade() {
-        countTrades();
-        bit<32> tradeCount;
-        tradeCountReg.read(tradeCount, 0);
-        writePriceHist(tradeCount);
-        bit<8> tradeAct = 0; // do nothing by default
-        bit<32> tradeAmt = 0;
-        
-        bit<32> movingAvg = calcMovingAvg(tradeCount);
-            
-        bit<2> lastTradeIsHigher; // than average
-        bit<2> thisTradeIsHigher = 1; // than average; 1 means equal
-        lastIsHigher.read(lastTradeIsHigher, 0); // read 0th index of lastIsHigher register
-    
-        // determine if current market price is higher or lower than moving average
-        
-        bit<2> HigherThanAvg = 2;
-        bit<2> LowerThanAvg = 0;
-        if (hdr.p4trade.mktprice > movingAvg) {
-            thisTradeIsHigher = HigherThanAvg;
-        }
-        else if (hdr.p4trade.mktprice > movingAvg) {
-            thisTradeIsHigher = LowerThanAvg;
-        }
-        
-        // implement moving average crossover strategy
-        if (lastTradeIsHigher == LowerThanAvg && thisTradeIsHigher == HigherThanAvg) {
-            tradeAct = 1; //buy
-            tradeAmt = 1;
-        }
-        else if (lastTradeIsHigher == HigherThanAvg && thisTradeIsHigher == LowerThanAvg) {
-            tradeAct = 2; //sell
-            tradeAmt = 1;
-        }
-        
-        // rewrite lastIsHigher
-        lastIsHigher.write(0, thisTradeIsHigher);
-        
-        // call send_back
-        send_back(tradeAct, tradeAmt);
-    }
-    
-    action buy(tradeAmt) {
+    action buy(bit<32> tradeAmt) {
         send_back(1, tradeAmt);
     }
     
-    action sell(tradeAmt) {
+    action sell(bit<32> tradeAmt) {
         send_back(2, tradeAmt);
     }
     
-    action doNothing() {
+    action noTrade() {
         send_back(0, 0);
     }
 
@@ -253,29 +213,64 @@ control MyIngress(inout headers hdr,
 
     table tradeTable {
         key = {
-            hdr.p4trade.mktprice        : exact; //dummy
+            hdr.p4trade.cmpToAvg        : exact;
         }
         actions = {
             buy;
             sell;
-            doNothing;
+            noTrade;
             NoAction;
             
         }
-        const default_action = decideTrade();
-        /*
+        const default_action = noTrade();
+        
         const entries = {
-            P4CALC_PLUS : buy();
-            P4CALC_MINUS: sell();
-            P4CALC_AND  : doNothing();
+            0 : noTrade();
+            1 : buy(1);
+            2 : sell(1);
+            3 : noTrade();
         }
-        */
+        
     }
 
     apply {
         if (hdr.p4trade.isValid()) {
+            countTrades();
+            bit<32> tradeCount;
+            tradeCountReg.read(tradeCount, 0);
+            hdr.p4trade.tc = tradeCount;
+            writePriceHist(tradeCount);
+            if (tradeCount < 5) {
+                hdr.p4trade.cmpToAvg = 0;
+            }
+            else {
+                bit<1> lastTradeIsHigher;
+                bit<1> thisTradeIsHigher = 0;
+                calcMovingAvg(tradeCount);
+                lastIsHigher.read(lastTradeIsHigher, 0); // read 0th index of lastIsHigher register
+                
+                // decide if this trade is higher than moving average
+                if (hdr.p4trade.mktprice > hdr.p4trade.mAvg) {
+                    thisTradeIsHigher = 1;
+                }
+                else if (hdr.p4trade.mktprice < hdr.p4trade.mAvg) {
+                    thisTradeIsHigher = 0;
+                }
+                else {
+                    thisTradeIsHigher = lastTradeIsHigher;
+                }
+                // write comparisons with average to header
+                bit<30> leadingZeros = 0;
+                hdr.p4trade.cmpToAvg = leadingZeros ++ lastTradeIsHigher ++ thisTradeIsHigher;
+                
+                // rewrite lastIsHigher
+                lastIsHigher.write(0, thisTradeIsHigher);
+            }
             tradeTable.apply();
-        } 
+            
+            
+
+            } 
         else {
             operation_drop();
         }

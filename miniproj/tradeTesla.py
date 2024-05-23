@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import re
-
 from scapy.all import *
 
 class P4trade(Packet):
@@ -62,14 +61,22 @@ def main():
     #p = make_seq(num_parser, make_seq(op_parser,num_parser))
     #s = ''
     #iface = get_if()
+    
+    priceFile = open("prices.txt", "r")
+    priceData = priceFile.read()
+    priceData = priceData.replace('\n', ' ').split()
+    for i in range(len(priceData)):
+        priceData[i] = int(float(priceData[i]))
+    
     iface = "enx0c37965f8a25"
     accbal = 0
     sharesHeld = 0
-    while True:
-        s = input('report trade price: ')
+    for i in range(len(priceData)):
+        s = priceData[i]
+        print("data point #" + str(i))
+        print("market price " + str(s))
         if s == "quit":
             break
-        s = int(s)
         try:
             #i,ts = p(s,0,[])
             pkt = Ether(dst='00:04:00:00:00:00', type=0x1234) / P4trade(mktprice=s)

@@ -45,7 +45,7 @@ def get_if():
 
 def main():
 
-    priceFile = open("TSLA_1min_open.csv", "r")
+    priceFile = open("./testData/AAPL1yclose.txt", "r")
     priceData = priceFile.read()
     priceData = priceData.replace('\n', ' ').split()
     for i in range(len(priceData)):
@@ -54,8 +54,14 @@ def main():
     iface = "enx0c37965f8a25"
     accbal = 0
     sharesHeld = 0
-    #for i in range(len(priceData)):
-    for i in range(600):
+    
+    if len(priceData) < 600:
+        maxTrades = len(priceData)
+    else:
+        maxTrades = 600
+        
+    for i in range(maxTrades):
+    #for i in range(600):
         price = priceData[i]
         print("data point #" + str(i))
         print("market price " + str(price))

@@ -9,23 +9,44 @@
  * The Protocol header looks like this:
  *
  *        0                1                  2              3
+ * +----------------+----------------+----------------+
+ * |      P         |       4        |     Version    |
  * +----------------+----------------+----------------+---------------+
- * |      P         |       4        |     Version    |  Action (act) |
+ * |                            Action (act)                          |
  * +----------------+----------------+----------------+---------------+
  * |                   Amount of shares to trade (amt)                |
  * +----------------+----------------+----------------+---------------+
  * |                      Market price (mktprice)                     |
  * +----------------+----------------+----------------+---------------+
- * |    cmpToAvg    |
- * +----------------+
+ * |                             cmpToAvg                             |
+ * +----------------+----------------+----------------+---------------+
+ * |                        Moving average (mAvg)                     |
+ * +----------------+----------------+----------------+---------------+
+ * |                          Trade count (tc)                        |
+ * +----------------+----------------+----------------+---------------+
  *
  * P is an ASCII Letter 'P' (0x50)
  * 4 is an ASCII Letter '4' (0x34)
  * Version is currently 0.1 (0x01)
  * act is the action to take:
- *   0 = do nothing
+ *   0 = no trade advised
  *   1 = buy
  *   2 = sell
+ *
+ * cmpToAvg is 2 bits of data: (moving average price crossover strategy)
+ * +------------+------------+----------------+
+ * | comparison to the moving average         +
+ * +------------+------------+----------------+
+ * | last trade | this trade | action advised |
+ * +------------+------------+----------------+
+ * | 0 (lower)  | 0 (lower)  | no trade       |
+ * +------------+------------+----------------+
+ * | 0 (lower)  | 1 (higher) | BUY            |
+ * +------------+------------+----------------+
+ * | 1 (higher) | 0 (lower)  | SELL           |
+ * +------------+------------+----------------+
+ * | 1 (higher) | 1 (higher) | no trade       |
+ * +------------+------------+----------------+
  *
  * The device receives a packet, determines the action and amount of shares to trade,
  * and sends the packet back out of the same port it came in on,
@@ -148,6 +169,7 @@ control MyVerifyChecksum(inout headers hdr,
 control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
+                  
     action send_back(bit<32> tradeAct, bit<32> tradeAmt) {
     
         hdr.p4trade.act = tradeAct; // put the action back in hdr.p4trade.act
@@ -164,11 +186,7 @@ control MyIngress(inout headers hdr,
            standard_metadata.egress_spec */
         standard_metadata.egress_spec = standard_metadata.ingress_port;
     }
-    /*
-    action count(bit<32> index) {
-        c.count(index); // increment counter at index
-    }
-    */
+
     action writePriceHist(bit<32> tradeCount) {
         priceHist.write(tradeCount, hdr.p4trade.mktprice);
     }
@@ -192,7 +210,6 @@ control MyIngress(inout headers hdr,
         bit<32> sum4recents = recent0 + recent1 + recent2 + recent3;
         
         hdr.p4trade.mAvg = sum4recents >> 2;
-        
     }
     
     action buy(bit<32> tradeAmt) {
@@ -220,7 +237,6 @@ control MyIngress(inout headers hdr,
             sell;
             noTrade;
             NoAction;
-            
         }
         const default_action = noTrade();
         
@@ -230,7 +246,6 @@ control MyIngress(inout headers hdr,
             2 : sell(1);
             3 : noTrade();
         }
-        
     }
 
     apply {
@@ -240,7 +255,8 @@ control MyIngress(inout headers hdr,
             tradeCountReg.read(tradeCount, 0);
             hdr.p4trade.tc = tradeCount;
             writePriceHist(tradeCount);
-            if (tradeCount < 5) {
+            if (tradeCount < 5) { 
+            // moving avg will only be calculated if there are sufficient trades
                 hdr.p4trade.cmpToAvg = 0;
             }
             else {
@@ -267,10 +283,7 @@ control MyIngress(inout headers hdr,
                 lastIsHigher.write(0, thisTradeIsHigher);
             }
             tradeTable.apply();
-            
-            
-
-            } 
+        } 
         else {
             operation_drop();
         }
